@@ -11,7 +11,7 @@ Data Ingestion → Market Intelligence → Strategy → Risk → Execution → P
 ### Agents
 
 | Agent | Role |
-|-------|------|
+|-------|------|a
 | **Market Intelligence** | Scans pools, detects price discrepancies |
 | **Strategy (Signal Generator)** | Converts opportunities into trade proposals |
 | **Risk Management** | Validates every trade — position sizing, exposure limits, circuit breakers |

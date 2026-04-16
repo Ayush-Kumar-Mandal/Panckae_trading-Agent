@@ -2,7 +2,7 @@
 Trading Orchestrator: the main engine that initializes all agents,
 wires them to the event bus, and runs the continuous trading loop.
 
-Pipeline: Market → Strategy → Risk → Execution → Portfolio
+Pipeline: Market -> Strategy -> Risk -> Execution -> Portfolio -> Feedback -> Repeat
 """
 
 import asyncio
@@ -18,6 +18,8 @@ from agents.strategy.signal_generator import SignalGenerator
 from agents.risk.risk_agent import RiskAgent
 from agents.execution.execution_agent import ExecutionAgent
 from agents.portfolio.portfolio_agent import PortfolioAgent
+from agents.feedback.feedback_agent import FeedbackAgent
+from data.storage.db_client import DBClient
 
 logger = get_logger(__name__)
 
@@ -27,7 +29,7 @@ class TradingOrchestrator:
     Central controller for the multi-agent trading system.
     
     Initializes agents, wires the event bus, and runs the
-    continuous scan → propose → validate → execute → track loop.
+    continuous scan -> propose -> validate -> execute -> track -> adapt loop.
     """
 
     def __init__(self, settings: Settings = None):
@@ -35,6 +37,9 @@ class TradingOrchestrator:
         self.event_bus = EventBus()
         self._running = False
         self._cycle_count = 0
+
+        # ── Persistent Storage ────────────────────────────────
+        self.db = DBClient()
 
         # ── Initialize Agents ─────────────────────────────────
         self.portfolio_agent = PortfolioAgent(
@@ -63,8 +68,13 @@ class TradingOrchestrator:
             event_bus=self.event_bus,
         )
 
+        self.feedback_agent = FeedbackAgent(
+            settings=self.settings,
+            event_bus=self.event_bus,
+        )
+
         # ── Wire Event Bus ────────────────────────────────────
-        # Pipeline: Market → Strategy → Risk → Execution → Portfolio
+        # Pipeline: Market -> Strategy -> Risk -> Execution -> Portfolio -> Feedback
         self.event_bus.subscribe(
             Events.MARKET_OPPORTUNITY, self.signal_generator.on_market_opportunity
         )
@@ -80,9 +90,13 @@ class TradingOrchestrator:
         self.event_bus.subscribe(
             Events.TRADE_FAILED, self.portfolio_agent.on_trade_failed
         )
+        # Feedback loop: portfolio updates -> feedback agent adapts parameters
+        self.event_bus.subscribe(
+            Events.PORTFOLIO_UPDATED, self.feedback_agent.on_portfolio_updated
+        )
 
-        logger.info("🏗️  Orchestrator initialized — all agents wired")
-        logger.info(f"   Mode: {'DRY RUN' if self.settings.execution.dry_run else '⚠️ LIVE'}")
+        logger.info("Orchestrator initialized - all agents wired (including feedback loop)")
+        logger.info(f"   Mode: {'DRY RUN' if self.settings.execution.dry_run else 'LIVE'}")
         logger.info(f"   Network: {self.settings.network.network}")
         logger.info(f"   Capital: ${self.settings.initial_capital_usd:.2f}")
         logger.info(f"   Scan interval: {self.settings.strategy.scan_interval_seconds}s")
@@ -97,14 +111,18 @@ class TradingOrchestrator:
         self._running = True
         scan_interval = self.settings.strategy.scan_interval_seconds
 
+        # Initialize persistent DB
+        await self.db.initialize()
+
         print("\n" + "=" * 60)
-        print("🚀 PANCAKESWAP MULTI-AGENT TRADING SYSTEM")
+        print("PANCAKESWAP MULTI-AGENT TRADING SYSTEM")
         print("=" * 60)
-        print(f"  Mode:     {'🔒 DRY RUN (no real trades)' if self.settings.execution.dry_run else '⚠️  LIVE TRADING'}")
+        print(f"  Mode:     {'DRY RUN (no real trades)' if self.settings.execution.dry_run else 'LIVE TRADING'}")
         print(f"  Network:  {self.settings.network.network}")
         print(f"  Capital:  ${self.settings.initial_capital_usd:.2f}")
         print(f"  Strategy: Cross-pool Arbitrage")
         print(f"  Interval: {scan_interval}s")
+        print(f"  Feedback: ENABLED (adaptive parameter tuning)")
         print("=" * 60 + "\n")
 
         try:
@@ -115,9 +133,9 @@ class TradingOrchestrator:
                     logger.info(f"Reached max cycles ({max_cycles}). Stopping.")
                     break
 
-                logger.info(f"═══ Cycle #{self._cycle_count} ═══════════════════════════════════")
+                logger.info(f"=== Cycle #{self._cycle_count} =====================================")
 
-                # Run one scan cycle — the event bus propagates through the pipeline
+                # Run one scan cycle - the event bus propagates through the pipeline
                 await self.market_agent.scan()
 
                 # Report feedback on losses to risk agent
@@ -129,51 +147,67 @@ class TradingOrchestrator:
                     )
                     self.risk_agent.record_trade_result(last_trade_pnl > 0)
 
+                # Save portfolio snapshot to DB every cycle
+                await self.db.save_portfolio_snapshot(
+                    self.portfolio_agent.state,
+                    cycle_number=self._cycle_count,
+                    metrics=self.portfolio_agent.get_metrics() if self.portfolio_agent.state.total_trades > 0 else {},
+                )
+
                 # Brief status
                 state = self.portfolio_agent.state
                 logger.info(
-                    f"💼 Capital=${state.capital_usd:.2f} | "
+                    f"Capital=${state.capital_usd:.2f} | "
                     f"P&L=${state.total_pnl_usd:+.2f} | "
                     f"Trades={state.total_trades} | "
                     f"Wins={state.winning_trades}"
                 )
 
-                # Wait before next cycle
-                await asyncio.sleep(scan_interval)
+                # Wait before next cycle (use current interval — feedback may have changed it)
+                await asyncio.sleep(self.settings.strategy.scan_interval_seconds)
 
         except asyncio.CancelledError:
             logger.info("Trading loop cancelled")
         finally:
             self._running = False
-            self._print_final_report()
+            await self._print_final_report()
 
     def stop(self) -> None:
         """Signal the trading loop to stop."""
-        logger.info("🛑 Stop signal received — shutting down after current cycle")
+        logger.info("Stop signal received - shutting down after current cycle")
         self._running = False
 
-    def _print_final_report(self) -> None:
+    async def _print_final_report(self) -> None:
         """Print the final performance report."""
         print("\n")
         self.portfolio_agent.print_summary()
 
-        print("📈 Agent Statistics:")
-        print(f"  Market Agent:    {self.market_agent.stats}")
-        print(f"  Signal Generator:{self.signal_generator.stats}")
-        print(f"  Risk Agent:      {self.risk_agent.stats}")
-        print(f"  Execution Agent: {self.execution_agent.stats}")
-        print(f"  Event Bus:       {self.event_bus.stats}")
+        print("Agent Statistics:")
+        print(f"  Market Agent:     {self.market_agent.stats}")
+        print(f"  Signal Generator: {self.signal_generator.stats}")
+        print(f"  Risk Agent:       {self.risk_agent.stats}")
+        print(f"  Execution Agent:  {self.execution_agent.stats}")
+        print(f"  Feedback Agent:   {self.feedback_agent.stats}")
+        print(f"  Event Bus:        {self.event_bus.stats}")
         print()
+
+        # DB stats
+        db_counts = await self.db.get_table_counts()
+        if any(db_counts.values()):
+            print("Database:")
+            for table, count in db_counts.items():
+                print(f"  {table}: {count} rows")
+            print()
 
         # Print recent trades
         recent = self.portfolio_agent.trade_log.get_recent(5)
         if recent:
-            print("📋 Recent Trades:")
+            print("Recent Trades:")
             print("-" * 60)
             for t in recent:
-                status = "✅" if t["success"] else "❌"
+                status = "WIN" if t["success"] else "FAIL"
                 print(
-                    f"  {status} {t['token_pair']:12s} | "
+                    f"  [{status}] {t['token_pair']:12s} | "
                     f"P&L: ${t['actual_profit_usd']:+.2f} | "
                     f"Gas: ${t['gas_cost_usd']:.2f} | "
                     f"{'DRY' if t['dry_run'] else 'LIVE'}"
