@@ -28,8 +28,10 @@ from data.collectors.subgraph_collector import SubgraphCollector
 from data.processors.pool_analyzer import PoolAnalyzer
 from agents.strategy.arbitrage_strategy import ArbitrageStrategy
 from agents.risk.risk_agent import RiskAgent
+from agents.feedback.feedback_agent import FeedbackAgent
 from execution.pancake_client import PancakeClient
 from portfolio.pnl_tracker import PnLTracker
+from data.storage.db_client import DBClient
 from portfolio.metrics import PerformanceMetrics
 
 # ── Page Config ───────────────────────────────────────────────────
@@ -196,12 +198,14 @@ def init_session():
     if "initialized" not in st.session_state:
         settings = load_settings()
         st.session_state.settings = settings
-        st.session_state.collector = SubgraphCollector()
+        st.session_state.collector = SubgraphCollector(use_real=True)
         st.session_state.analyzer = PoolAnalyzer(settings.strategy)
         st.session_state.strategy = ArbitrageStrategy(settings.strategy)
         st.session_state.risk_agent = RiskAgent(settings.risk)
+        st.session_state.feedback_agent = FeedbackAgent(settings)
         st.session_state.client = PancakeClient(settings.execution)
         st.session_state.pnl = PnLTracker()
+        st.session_state.db = DBClient()
         st.session_state.trade_history = []
         st.session_state.capital = settings.initial_capital_usd
         st.session_state.initial_capital = settings.initial_capital_usd
@@ -210,7 +214,16 @@ def init_session():
         st.session_state.total_opportunities = 0
         st.session_state.approved_trades = 0
         st.session_state.rejected_trades = 0
+        st.session_state.data_source = "pending"
         st.session_state.initialized = True
+
+        # Initialize DB
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(st.session_state.db.initialize())
+        finally:
+            loop.close()
 
 
 def run_one_cycle():
@@ -226,8 +239,9 @@ def run_one_cycle():
     asyncio.set_event_loop(loop)
 
     try:
-        # Fetch pools
+        # Fetch pools (tries real subgraph first, auto-falls back to mock)
         pools = loop.run_until_complete(collector.fetch_pools())
+        st.session_state.data_source = pools[0].source if pools else "none"
         gas_price = loop.run_until_complete(collector.fetch_gas_price())
 
         from utils.models import MarketState, PortfolioState
@@ -266,7 +280,7 @@ def run_one_cycle():
                     trade_pnl = 0.0
                     risk_agent.record_trade_result(False)
 
-                st.session_state.trade_history.append({
+                trade_record = {
                     "time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
                     "pair": proposal.opportunity.token_pair,
                     "size": f"${proposal.amount_in_usd:.2f}",
@@ -274,7 +288,33 @@ def run_one_cycle():
                     "gas": result.gas_cost_usd,
                     "status": "WIN" if result.success and trade_pnl > 0 else ("LOSS" if result.success else "FAIL"),
                     "success": result.success,
-                })
+                }
+                st.session_state.trade_history.append(trade_record)
+
+                # Persist to DB
+                loop.run_until_complete(st.session_state.db.save_trade({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "token_pair": proposal.opportunity.token_pair,
+                    "amount_usd": proposal.amount_in_usd,
+                    "actual_profit_usd": trade_pnl,
+                    "gas_cost_usd": result.gas_cost_usd,
+                    "success": result.success,
+                    "tx_hash": result.tx_hash,
+                    "dry_run": result.dry_run,
+                }))
+
+                # Run feedback agent
+                from utils.models import PortfolioState as PS2
+                fb_portfolio = PS2(
+                    capital_usd=st.session_state.capital,
+                    peak_capital_usd=max(st.session_state.capital_history),
+                    total_trades=len(st.session_state.trade_history),
+                    winning_trades=sum(1 for t in st.session_state.trade_history if t['success'] and t['pnl'] > 0),
+                    losing_trades=sum(1 for t in st.session_state.trade_history if not t['success'] or t['pnl'] <= 0),
+                )
+                st.session_state.feedback_agent._recent_pnls.append(trade_pnl)
+                if len(st.session_state.feedback_agent._recent_pnls) > 20:
+                    st.session_state.feedback_agent._recent_pnls = st.session_state.feedback_agent._recent_pnls[-20:]
             else:
                 st.session_state.rejected_trades += 1
 
@@ -519,9 +559,12 @@ with st.sidebar:
 
     st.markdown("### 📊 System Info")
     settings = st.session_state.settings
+    source_label = st.session_state.get('data_source', 'pending')
+    source_icon = '🟢 Live' if source_label == 'subgraph' else '🟡 Mock' if source_label == 'mock' else '⏳'
     st.markdown(f"""
     - **Network:** {settings.network.network}
     - **Mode:** {'DRY RUN 🔒' if settings.execution.dry_run else 'LIVE ⚠️'}
+    - **Data Source:** {source_icon}
     - **Min Profit:** ${settings.strategy.min_profit_threshold_usd:.2f}
     - **Max Risk/Trade:** {settings.risk.max_risk_per_trade_pct:.0%}
     - **Max Drawdown:** {settings.risk.max_drawdown_pct:.0%}
@@ -537,6 +580,21 @@ with st.sidebar:
     - **Rejected:** {st.session_state.rejected_trades}
     - **Consec. Losses:** {risk.consecutive_losses}
     - **Circuit Breaker:** {'🔴 ACTIVE' if risk.drawdown_ctrl.is_halted else '🟢 Normal'}
+    """)
+
+    st.divider()
+
+    st.markdown("### 🧠 Feedback Agent")
+    fb = st.session_state.feedback_agent
+    fb_stats = fb.stats
+    st.markdown(f"""
+    - **Adjustments:** {fb_stats['total_adjustments']}
+    - **Window:** {fb_stats['recent_window_size']} trades
+    - **Win Rate (recent):** {fb_stats['recent_win_rate']:.0%}
+    - **Min Profit:** ${fb_stats['current_min_profit']:.2f}
+    - **Max Trade:** ${fb_stats['current_max_trade_size']:.2f}
+    - **Risk/Trade:** {fb_stats['current_risk_per_trade']:.1%}
+    - **Scan Interval:** {fb_stats['current_scan_interval']:.1f}s
     """)
 
     if st.button("🔄 Reset System", use_container_width=True):
@@ -573,8 +631,8 @@ with col6:
 
 
 # ── Tabs ──────────────────────────────────────────────────────────
-tab_overview, tab_trades, tab_performance, tab_market = st.tabs([
-    "📈 Overview", "📋 Trade History", "🏆 Performance", "🌐 Market"
+tab_overview, tab_trades, tab_performance, tab_market, tab_database = st.tabs([
+    "📈 Overview", "📋 Trade History", "🏆 Performance", "🌐 Market", "💾 Database"
 ])
 
 # ── Tab: Overview ─────────────────────────────────────────────────
@@ -876,6 +934,62 @@ with tab_market:
                     yaxis=dict(gridcolor="rgba(255,255,255,0.05)", title="Price (USD)"),
                 )
                 st.plotly_chart(fig, use_container_width=True)
+
+# ── Tab: Database ─────────────────────────────────────────────────
+with tab_database:
+    st.markdown('<div class="section-header">Persistent Storage (SQLite)</div>', unsafe_allow_html=True)
+    st.caption("All trades and snapshots are automatically saved to `data/trading_data.db`.")
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        db = st.session_state.db
+        db_counts = loop.run_until_complete(db.get_table_counts())
+        db_trades = loop.run_until_complete(db.get_recent_trades(30))
+        db_stats = loop.run_until_complete(db.get_trade_stats())
+    finally:
+        loop.close()
+
+    # Table counts
+    col_db1, col_db2, col_db3, col_db4 = st.columns(4)
+    with col_db1:
+        metric_card("Trades", str(db_counts.get("trades", 0)), "blue")
+    with col_db2:
+        metric_card("Snapshots", str(db_counts.get("portfolio_snapshots", 0)), "purple")
+    with col_db3:
+        metric_card("Pool Records", str(db_counts.get("pool_snapshots", 0)), "gold")
+    with col_db4:
+        metric_card("Adjustments", str(db_counts.get("feedback_adjustments", 0)), "green")
+
+    # Trade stats
+    if db_stats and db_stats.get("total_trades", 0) > 0:
+        st.markdown('<div class="section-header">Aggregate Trade Stats (All-Time)</div>', unsafe_allow_html=True)
+        stats_df = pd.DataFrame({
+            "Metric": ["Total Trades", "Wins", "Losses", "Total P&L", "Total Gas",
+                       "Avg Win", "Avg Loss", "Best Trade", "Worst Trade"],
+            "Value": [
+                str(int(db_stats.get("total_trades", 0))),
+                str(int(db_stats.get("wins", 0))),
+                str(int(db_stats.get("losses", 0))),
+                f"${db_stats.get('total_pnl', 0):+.2f}",
+                f"${db_stats.get('total_gas', 0):.2f}",
+                f"${db_stats.get('avg_win', 0):+.2f}" if db_stats.get("avg_win") else "-",
+                f"${db_stats.get('avg_loss', 0):+.2f}" if db_stats.get("avg_loss") else "-",
+                f"${db_stats.get('best_trade', 0):+.2f}" if db_stats.get("best_trade") else "-",
+                f"${db_stats.get('worst_trade', 0):+.2f}" if db_stats.get("worst_trade") else "-",
+            ],
+        })
+        st.dataframe(stats_df, use_container_width=True, hide_index=True)
+
+    # Recent DB trades
+    if db_trades:
+        st.markdown('<div class="section-header">Recent DB Records</div>', unsafe_allow_html=True)
+        db_df = pd.DataFrame(db_trades)
+        display_cols = [c for c in ["id", "timestamp", "token_pair", "actual_profit_usd",
+                                     "gas_cost_usd", "success", "dry_run"] if c in db_df.columns]
+        st.dataframe(db_df[display_cols], use_container_width=True, hide_index=True)
+    else:
+        st.info("No trades in database yet. Run cycles to populate.")
 
 # ── Footer ────────────────────────────────────────────────────────
 st.markdown("---")
