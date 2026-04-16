@@ -198,7 +198,7 @@ def init_session():
     if "initialized" not in st.session_state:
         settings = load_settings()
         st.session_state.settings = settings
-        st.session_state.collector = SubgraphCollector(use_real=True)
+        st.session_state.collector = SubgraphCollector()
         st.session_state.analyzer = PoolAnalyzer(settings.strategy)
         st.session_state.strategy = ArbitrageStrategy(settings.strategy)
         st.session_state.risk_agent = RiskAgent(settings.risk)
