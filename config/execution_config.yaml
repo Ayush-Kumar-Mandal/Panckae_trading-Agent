@@ -1,0 +1,8 @@
+# Execution Configuration
+gas_limit: 300000
+gas_price_multiplier: 1.1
+max_retries: 3
+retry_delay_seconds: 2.0
+slippage_tolerance: 0.005
+transaction_timeout_seconds: 60.0
+dry_run: true

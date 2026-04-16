@@ -1,0 +1,7 @@
+# Risk Configuration
+max_risk_per_trade_pct: 0.02
+max_drawdown_pct: 0.10
+max_exposure_per_token_pct: 0.25
+min_profit_threshold_usd: 0.50
+max_consecutive_losses: 5
+circuit_breaker_cooldown_sec: 300.0

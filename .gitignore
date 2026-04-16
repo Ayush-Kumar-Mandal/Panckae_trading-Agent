@@ -1,0 +1,16 @@
+# Multi-Agent PancakeSwap Trading System
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.env
+*.db
+*.sqlite
+*.log
+.venv/
+venv/
+.idea/
+.vscode/
+*.egg

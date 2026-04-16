@@ -1,0 +1,7 @@
+# Strategy Configuration
+min_profit_threshold_usd: 0.50
+slippage_tolerance: 0.005
+arbitrage_gap_pct: 0.01
+max_trade_size_usd: 100.0
+min_liquidity_usd: 1000.0
+scan_interval_seconds: 5.0
