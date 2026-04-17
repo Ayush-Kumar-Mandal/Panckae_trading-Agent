@@ -1,6 +1,7 @@
 """
 Static constants for the trading system — addresses, ABIs, event types.
 """
+from __future__ import annotations
 
 # ── PancakeSwap Contract Addresses (BSC Mainnet) ──────────────────
 PANCAKE_ROUTER_V2 = "0x10ED43C718714eb63d5aA57B78B54704E256024E"

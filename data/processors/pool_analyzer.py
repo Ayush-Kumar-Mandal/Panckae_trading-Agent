@@ -2,6 +2,7 @@
 Pool analyzer: processes raw pool data to detect arbitrage opportunities.
 Groups pools by token pair, compares prices, and identifies profitable gaps.
 """
+from __future__ import annotations
 
 from typing import Optional
 from utils.logger import get_logger

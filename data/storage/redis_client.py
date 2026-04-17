@@ -1,6 +1,7 @@
 """
 Redis client wrapper. Falls back to in-memory storage if Redis is unavailable.
 """
+from __future__ import annotations
 
 from typing import Any, Optional
 from utils.logger import get_logger

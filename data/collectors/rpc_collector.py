@@ -2,6 +2,7 @@
 RPC Collector: fetches real-time blockchain data via BSC RPC endpoint.
 Provides gas price, block number, and on-chain pair reserves.
 """
+from __future__ import annotations
 
 import asyncio
 from typing import Optional

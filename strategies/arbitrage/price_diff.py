@@ -1,6 +1,7 @@
 """
 Price Difference Calculator: precise price comparison between pools.
 """
+from __future__ import annotations
 
 from utils.models import PoolData
 

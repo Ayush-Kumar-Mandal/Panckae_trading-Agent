@@ -7,6 +7,7 @@ Supports two modes:
 
 ⚠️  LIVE mode requires: PRIVATE_KEY, WALLET_ADDRESS, and DRY_RUN=false in .env
 """
+from __future__ import annotations
 
 import time
 import random

@@ -1,6 +1,7 @@
 """
 P&L Tracker: tracks all realized profit/loss from trades.
 """
+from __future__ import annotations
 
 from utils.logger import get_logger
 from utils.models import TradeResult

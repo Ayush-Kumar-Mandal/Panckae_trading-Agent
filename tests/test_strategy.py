@@ -5,6 +5,7 @@ Unit Tests for Strategy Layer:
   - ArbitrageStrategy proposal generation
   - AMM math utilities
 """
+from __future__ import annotations
 
 import sys
 import os

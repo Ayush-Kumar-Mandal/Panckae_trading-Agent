@@ -5,6 +5,7 @@ Usage:
     python scripts/run_backtest.py                # Default: 100 cycles
     python scripts/run_backtest.py --cycles 500   # 500 cycles
 """
+from __future__ import annotations
 
 import asyncio
 import argparse

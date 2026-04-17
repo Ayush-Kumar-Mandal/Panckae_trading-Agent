@@ -4,6 +4,7 @@ init_pipeline.py — Initialize data connections, validate configuration, run he
 Usage:
     python scripts/init_pipeline.py
 """
+from __future__ import annotations
 
 import asyncio
 import sys

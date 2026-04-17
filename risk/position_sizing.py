@@ -2,6 +2,7 @@
 Position sizing: determines how large a trade should be based on
 available capital and risk parameters.
 """
+from __future__ import annotations
 
 from utils.logger import get_logger
 from config.settings import RiskConfig

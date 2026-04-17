@@ -2,6 +2,7 @@
 Feature Engineering: compute derived metrics from raw pool data.
 Includes: volatility, regime detection, whale detection, anomaly detection.
 """
+from __future__ import annotations
 
 import math
 import time

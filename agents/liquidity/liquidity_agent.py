@@ -8,6 +8,7 @@ Responsibilities:
   - Estimate impermanent loss for LP strategies
   - Publish pool analysis updates to event bus
 """
+from __future__ import annotations
 
 import math
 from utils.logger import get_logger

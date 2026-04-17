@@ -2,6 +2,7 @@
 Drawdown controller: monitors portfolio drawdown and triggers circuit breaker
 when losses exceed the configured threshold.
 """
+from __future__ import annotations
 
 from utils.logger import get_logger
 

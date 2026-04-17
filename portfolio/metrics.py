@@ -1,6 +1,7 @@
 """
 Performance metrics: computes trading system KPIs from trade history.
 """
+from __future__ import annotations
 
 import math
 from utils.logger import get_logger

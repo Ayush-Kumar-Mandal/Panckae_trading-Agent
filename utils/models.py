@@ -2,6 +2,7 @@
 Shared data models used across the entire trading system.
 All inter-agent communication uses these dataclasses.
 """
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Optional

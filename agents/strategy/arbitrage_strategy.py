@@ -1,6 +1,7 @@
 """
 Arbitrage Strategy Agent: converts market opportunities into trade proposals.
 """
+from __future__ import annotations
 
 from utils.logger import get_logger
 from utils.models import ArbitrageOpportunity, TradeProposal, MarketState

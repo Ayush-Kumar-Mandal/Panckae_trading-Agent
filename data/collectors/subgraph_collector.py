@@ -8,6 +8,7 @@ Queries PancakeSwap V2 subgraph for:
 
 Falls back to mock data if the subgraph is unreachable.
 """
+from __future__ import annotations
 
 import random
 import asyncio

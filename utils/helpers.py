@@ -1,6 +1,7 @@
 """
 Shared utility functions used across the trading system.
 """
+from __future__ import annotations
 
 import asyncio
 import time

@@ -6,6 +6,7 @@ Pipeline: Market -> Strategy -> Risk -> Execution -> Portfolio -> Feedback -> Re
           Market -> Liquidity (parallel deep pool analysis)
           Market -> Risk (anomaly detection -> defensive actions)
 """
+from __future__ import annotations
 
 import asyncio
 import signal

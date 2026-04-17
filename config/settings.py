@@ -2,6 +2,7 @@
 Centralized configuration loaded from environment variables and YAML files.
 Uses pydantic for validation. Falls back to sensible defaults.
 """
+from __future__ import annotations
 
 import os
 import yaml

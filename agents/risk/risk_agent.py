@@ -4,6 +4,7 @@ This is the CRITICAL safety gate — no trade bypasses this agent.
 
 Includes: anomaly-triggered defensive actions, per-trade stop-loss enforcement.
 """
+from __future__ import annotations
 
 import time
 from utils.logger import get_logger

@@ -3,6 +3,7 @@ Market Intelligence Agent: builds a real-time market view,
 detects opportunities, monitors regime changes, whale activity,
 and anomalies. Publishes all findings to the event bus.
 """
+from __future__ import annotations
 
 from utils.logger import get_logger
 from utils.models import MarketState, PoolData, ArbitrageOpportunity

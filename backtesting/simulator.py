@@ -1,6 +1,7 @@
 """
 Simulator: models AMM execution conditions — slippage, price impact, gas.
 """
+from __future__ import annotations
 
 import random
 from utils.logger import get_logger

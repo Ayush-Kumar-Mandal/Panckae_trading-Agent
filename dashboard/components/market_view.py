@@ -2,6 +2,7 @@
 Market view component for the dashboard.
 Displays live pool data, opportunity scanner, and price comparison charts.
 """
+from __future__ import annotations
 
 import plotly.graph_objects as go
 import pandas as pd

@@ -1,6 +1,7 @@
 """
 Exposure manager: prevents over-concentration in any single token.
 """
+from __future__ import annotations
 
 from collections import defaultdict
 from utils.logger import get_logger

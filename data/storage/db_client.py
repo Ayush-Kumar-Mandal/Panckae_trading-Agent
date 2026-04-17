@@ -5,6 +5,7 @@ Stores trade history, portfolio snapshots, and historical pool data.
 Uses Python's built-in sqlite3 (no aiosqlite dependency needed).
 Async wrappers run sync operations in a thread executor for non-blocking I/O.
 """
+from __future__ import annotations
 
 import json
 import os

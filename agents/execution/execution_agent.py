@@ -2,6 +2,7 @@
 Execution Agent: receives approved trades and executes them via PancakeClient.
 Includes MEV protection strategies.
 """
+from __future__ import annotations
 
 from utils.logger import get_logger
 from utils.models import TradeProposal, TradeResult, PortfolioState

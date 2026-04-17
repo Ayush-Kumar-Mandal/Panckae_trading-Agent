@@ -1,6 +1,7 @@
 """
 Order Router: determines the best swap path (direct vs multi-hop).
 """
+from __future__ import annotations
 
 from utils.logger import get_logger
 from utils.constants import WBNB

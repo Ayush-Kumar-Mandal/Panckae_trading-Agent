@@ -2,6 +2,7 @@
 Scheduler: runs agents at configured intervals.
 Used by the orchestrator for periodic tasks.
 """
+from __future__ import annotations
 
 import asyncio
 from typing import Callable, Coroutine

@@ -6,6 +6,7 @@ Displays portfolio metrics, trade history, performance charts, and market state.
 
 Run:  streamlit run dashboard/app.py
 """
+from __future__ import annotations
 
 import sys
 import os

@@ -2,6 +2,7 @@
 Cross-pool arbitrage detection.
 Wraps the PoolAnalyzer and provides a clean interface for the strategy agent.
 """
+from __future__ import annotations
 
 from utils.logger import get_logger
 from utils.models import PoolData, ArbitrageOpportunity

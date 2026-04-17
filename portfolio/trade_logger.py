@@ -1,6 +1,7 @@
 """
 Trade logger: maintains a complete log of all trades with full details.
 """
+from __future__ import annotations
 
 from dataclasses import asdict
 from utils.logger import get_logger

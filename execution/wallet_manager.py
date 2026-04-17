@@ -1,6 +1,7 @@
 """
 Wallet Manager: handles wallet loading, balance checking, and signing.
 """
+from __future__ import annotations
 
 from utils.logger import get_logger
 from utils.helpers import format_address

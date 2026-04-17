@@ -1,6 +1,7 @@
 """
 Slippage Control: calculates minimum output amounts and dynamic slippage.
 """
+from __future__ import annotations
 
 from utils.logger import get_logger
 

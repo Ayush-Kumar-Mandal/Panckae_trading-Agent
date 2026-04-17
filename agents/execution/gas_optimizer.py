@@ -1,6 +1,7 @@
 """
 Gas Optimizer: estimates and optimizes gas costs for transactions.
 """
+from __future__ import annotations
 
 from utils.logger import get_logger
 from utils.constants import DEFAULT_GAS_COST_USD

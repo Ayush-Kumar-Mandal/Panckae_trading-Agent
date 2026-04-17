@@ -2,6 +2,7 @@
 Transaction Manager: handles the lifecycle of blockchain transactions.
 Build → Sign → Send → Confirm with retry logic.
 """
+from __future__ import annotations
 
 import time
 from utils.logger import get_logger

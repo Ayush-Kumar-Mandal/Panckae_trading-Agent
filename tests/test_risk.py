@@ -5,6 +5,7 @@ Unit Tests for Risk Management Layer:
   - ExposureManager limits
   - RiskAgent full validation pipeline
 """
+from __future__ import annotations
 
 import sys
 import os

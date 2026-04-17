@@ -2,6 +2,7 @@
 Unified caching interface. Uses in-memory dict by default.
 Can be upgraded to Redis by swapping the backend.
 """
+from __future__ import annotations
 
 import json
 import time

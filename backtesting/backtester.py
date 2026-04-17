@@ -1,6 +1,7 @@
 """
 Backtester: runs strategies against historical/simulated data to evaluate performance.
 """
+from __future__ import annotations
 
 import asyncio
 from typing import Optional

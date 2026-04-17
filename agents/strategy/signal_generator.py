@@ -2,6 +2,7 @@
 Signal Generator Agent: receives market opportunities and generates trade signals.
 Uses the multi-strategy engine for regime-aware signal generation.
 """
+from __future__ import annotations
 
 from utils.logger import get_logger
 from utils.models import MarketState, TradeProposal, PortfolioState

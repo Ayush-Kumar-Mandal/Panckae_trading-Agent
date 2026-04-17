@@ -2,6 +2,7 @@
 Centralized structured logging for the trading system.
 All modules import `get_logger(__name__)` to get a module-scoped logger.
 """
+from __future__ import annotations
 
 import logging
 import sys

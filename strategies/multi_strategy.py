@@ -2,6 +2,7 @@
 Multi-Strategy Engine: supports arbitrage, trend-following, and mean-reversion.
 Selects strategies based on the current market regime.
 """
+from __future__ import annotations
 
 from utils.logger import get_logger
 from utils.models import MarketState, TradeProposal, MarketRegime, PoolData, ArbitrageOpportunity

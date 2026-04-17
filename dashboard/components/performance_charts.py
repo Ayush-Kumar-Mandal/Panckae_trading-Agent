@@ -2,6 +2,7 @@
 Performance chart components for the dashboard.
 Renders equity curves, drawdown charts, return histograms, and metric gauges.
 """
+from __future__ import annotations
 
 import plotly.graph_objects as go
 import streamlit as st

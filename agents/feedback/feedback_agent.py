@@ -8,6 +8,7 @@ Analyzes recent trading performance and adjusts system parameters:
 
 This creates a self-improving system that reacts to changing market conditions.
 """
+from __future__ import annotations
 
 import time
 from utils.logger import get_logger

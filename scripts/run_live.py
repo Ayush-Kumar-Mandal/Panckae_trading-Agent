@@ -6,6 +6,7 @@ Usage:
     python scripts/run_live.py --cycles 50     # Run 50 cycles
     python scripts/run_live.py --cycles 0      # Infinite loop (Ctrl+C to stop)
 """
+from __future__ import annotations
 
 import asyncio
 import argparse

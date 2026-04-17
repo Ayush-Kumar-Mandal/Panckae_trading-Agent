@@ -2,6 +2,7 @@
 Trade table component for the dashboard.
 Renders trade history as a styled, filterable table.
 """
+from __future__ import annotations
 
 import pandas as pd
 import streamlit as st

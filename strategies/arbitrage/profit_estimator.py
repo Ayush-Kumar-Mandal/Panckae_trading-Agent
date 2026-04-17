@@ -2,6 +2,7 @@
 Profit estimator: calculates expected net profit for an arbitrage opportunity
 after accounting for gas costs, slippage, and trading fees.
 """
+from __future__ import annotations
 
 from utils.logger import get_logger
 from utils.models import ArbitrageOpportunity

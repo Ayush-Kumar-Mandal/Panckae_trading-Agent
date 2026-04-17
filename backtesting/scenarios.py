@@ -1,6 +1,7 @@
 """
 Scenarios: predefined stress-test conditions for backtesting.
 """
+from __future__ import annotations
 
 from dataclasses import dataclass
 from utils.logger import get_logger

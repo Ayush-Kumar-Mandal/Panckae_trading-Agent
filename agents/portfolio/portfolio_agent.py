@@ -1,6 +1,7 @@
 """
 Portfolio Agent: tracks capital, records trades, computes performance metrics.
 """
+from __future__ import annotations
 
 from utils.logger import get_logger
 from utils.models import TradeResult, PortfolioState

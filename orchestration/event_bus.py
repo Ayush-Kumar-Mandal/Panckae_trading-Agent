@@ -3,6 +3,7 @@ In-memory async event bus for agent communication.
 Agents publish events; other agents subscribe to relevant event types.
 No external dependencies (no Redis required).
 """
+from __future__ import annotations
 
 import asyncio
 from collections import defaultdict

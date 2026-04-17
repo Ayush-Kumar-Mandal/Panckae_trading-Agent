@@ -1,6 +1,7 @@
 """
 Shared strategy utilities: AMM math, pair normalization.
 """
+from __future__ import annotations
 
 
 def amm_price(reserve_in: float, reserve_out: float) -> float:
