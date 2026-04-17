@@ -1,46 +1,100 @@
 # 🥞 PancakeSwap Multi-Agent Trading System
 
-An autonomous, event-driven, multi-agent AI trading system for PancakeSwap (BSC) that identifies and executes cross-pool arbitrage opportunities while managing risk and adapting to market conditions in real time.
+An autonomous, event-driven, multi-agent AI trading system for PancakeSwap (BSC). Features **7 specialized agents**, **3 trading strategies** (arbitrage, trend-following, mean-reversion), **regime-aware strategy selection**, **whale/anomaly detection**, **MEV protection**, and **adaptive feedback loops** — all orchestrated through an async event bus.
 
-![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
 ![BSC](https://img.shields.io/badge/Chain-BSC-F0B90B?logo=binance&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Status](https://img.shields.io/badge/Status-Fully%20Functional-00e676)
+![Status](https://img.shields.io/badge/Status-Production%20Ready-00e676)
+![Agents](https://img.shields.io/badge/Agents-7-667eea)
+![Strategies](https://img.shields.io/badge/Strategies-3-e040fb)
+![Tests](https://img.shields.io/badge/Tests-60%20passing-00e676)
 
 ---
 
 ## Architecture
 
 ```
-┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│   Market     │───▶│   Strategy   │───▶│     Risk     │───▶│  Execution   │───▶│  Portfolio   │───▶│   Feedback   │
-│   Agent      │    │   Agent      │    │    Agent     │    │   Agent      │    │   Agent      │    │    Agent     │
-│              │    │              │    │              │    │              │    │              │    │              │
-│ Scans pools  │    │ Generates    │    │ Validates    │    │ Executes or  │    │ Tracks P&L   │    │ Adapts       │
-│ Detects opps │    │ proposals    │    │ every trade  │    │ simulates    │    │ Win rate     │    │ parameters   │
-└──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
-       ▲                                                                                                  │
-       └──────────────────────────────── Feedback Loop ◀──────────────────────────────────────────────────┘
+                          ┌───────────────────────────────────────────────────────────────────────────────┐
+                          │                           ASYNC EVENT BUS                                     │
+                          └───┬────────┬────────┬───────┬────────┬────────┬────────┬────────┬────────────┘
+                              │        │        │       │        │        │        │        │
+                          ┌───▼──┐ ┌───▼──┐ ┌───▼──┐ ┌─▼────┐ ┌─▼────┐ ┌─▼────┐ ┌─▼──────┐│
+                          │Market│ │Liqui-│ │Strat-│ │ Risk │ │Execu-│ │Port- │ │Feed-  ││
+                          │Intel │ │dity  │ │egy   │ │Agent │ │tion  │ │folio │ │back   ││
+                          │Agent │ │Agent │ │Agent │ │      │ │Agent │ │Agent │ │Agent  ││
+                          └──┬───┘ └──┬───┘ └──┬───┘ └──┬───┘ └──┬───┘ └──┬───┘ └──┬────┘│
+                             │        │        │        │        │        │        │      │
+  ┌─────────────────────────────────────────────────────────────────────────────────────────┘
+  │                                    FEEDBACK LOOP
+  ▼
+  Market Scan → Regime Detection → Whale/Anomaly Detection → Multi-Strategy Proposals
+       → Risk Validation (8 checks) → MEV-Protected Execution → Portfolio Update → Adapt Parameters
 ```
 
-### 🤖 Agent Pipeline
+### 🤖 7-Agent Pipeline
 
-| # | Agent | Subscribes To | Publishes | Key Logic |
-|---|-------|--------------|-----------|-----------|
-| 1 | **Market Intelligence** | *(triggered by orchestrator)* | `market.opportunity_detected` | Fetches pools from PancakeSwap subgraph, runs pool analyzer, finds price gaps |
-| 2 | **Signal Generator** | `market.opportunity_detected` | `strategy.trade_signal` | Sizes positions, estimates profit, builds TradeProposals |
-| 3 | **Risk Management** | `strategy.trade_signal` | `risk.trade_approved` / `risk.trade_rejected` | 6 checks: profit threshold, position size, exposure, drawdown, circuit breaker, gas |
-| 4 | **Execution** | `risk.trade_approved` | `execution.trade_completed` / `execution.trade_failed` | Real swaps via Router V2 (live) or simulated (dry-run) |
-| 5 | **Portfolio** | `execution.trade_completed` | `portfolio.updated` | Updates capital, P&L, win/loss, computes Sharpe, profit factor |
-| 6 | **Feedback** | `portfolio.updated` | `feedback.params_updated` | Adjusts min profit, trade size, risk limits, scan interval based on performance |
+| # | Agent | Subscribes To | Publishes | Key Capabilities |
+|---|-------|--------------|-----------|----|
+| 1 | **Market Intelligence** | *(orchestrator-triggered)* | `market.opportunity_detected`, `market.regime_change`, `market.whale_alert`, `risk.anomaly_detected` | Fetches pools, **detects regime** (5 states), **whale activity**, **anomalies** (flash crash, depeg) |
+| 2 | **Liquidity & Pool Analysis** | `market.opportunity_detected` | `liquidity.pool_analysis_updated` | **Risk-tier classification** (blue-chip/mid-cap/degen), fee efficiency, reserve imbalance, **impermanent loss estimation** |
+| 3 | **Strategy (Multi-Strategy)** | `market.opportunity_detected` | `strategy.trade_signal` | **3 strategies**: arbitrage, trend-following, mean-reversion. Regime-aware selection. |
+| 4 | **Risk Management** | `strategy.trade_signal`, `risk.anomaly_detected` | `risk.trade_approved` / `risk.trade_rejected` | **8 checks**: anomaly halt, circuit breaker, drawdown, profit, position size, exposure, stop-loss, consecutive losses |
+| 5 | **Execution** | `risk.trade_approved` | `execution.trade_completed` / `execution.trade_failed` | **MEV protection** (trade splitting, tight slippage), dry-run or live Router V2 swaps |
+| 6 | **Portfolio** | `execution.trade_completed` | `portfolio.updated` | Capital tracking, P&L, Sharpe ratio, win rate, drawdown monitoring |
+| 7 | **Feedback** | `portfolio.updated` | `feedback.params_updated` | Adaptive tuning: min profit, trade size, risk limits, scan interval — bounded ±50-200% |
 
-### Event-Driven Communication
+---
 
-All agents are decoupled and communicate through an **async event bus**:
+## Key Features
 
-```
-market.opportunity_detected → strategy.trade_signal → risk.trade_approved → execution.trade_completed → portfolio.updated → feedback.params_updated
-```
+### 🎯 Multi-Strategy Engine (Regime-Aware)
+
+| Strategy | Active When | Signal |
+|----------|-------------|--------|
+| **Cross-Pool Arbitrage** | Always | Price diff > 1% between same-pair pools |
+| **Trend Following** | `trending_up` / `trending_down` regimes | Momentum in dominant trend direction |
+| **Mean Reversion** | `mean_reverting` / `low_volatility` regimes | Reserve imbalance + high reversion probability |
+
+### 📊 Market Regime Detection
+
+5 market regimes detected using volatility, trend strength, and autocorrelation:
+
+| Regime | Icon | Characteristics |
+|--------|------|-----------------|
+| Trending Up | 📈 | Positive momentum, >30% trend strength |
+| Trending Down | 📉 | Negative momentum, <-30% trend strength |
+| Mean Reverting | 🔄 | Negative autocorrelation, prices revert to mean |
+| High Volatility | ⚡ | Volatility in 80th+ percentile |
+| Low Volatility | 😴 | Volatility in 20th or lower percentile |
+
+### 🐋 Whale & Anomaly Detection
+
+| Detection | Trigger | Action |
+|-----------|---------|--------|
+| Volume spike | 3x+ above average | ⚠️ Whale alert published |
+| Liquidity drain | >50% pool TVL removed | ⚠️ Whale alert published |
+| Flash crash | >10% price drop in 1 cycle | 🛑 Trading halted 60-120s |
+| Stablecoin depeg | >2% deviation from $1 | 🛑 Trading halted, exit recommendation |
+| Extreme volume | >10x normal | ⚠️ Reduce exposure recommendation |
+
+### 🛡️ MEV Protection
+
+| Technique | How It Works |
+|-----------|-------------|
+| Tight slippage | Enforced max 0.5% slippage bounds |
+| Trade splitting | Large orders split into smaller chunks ($500 max per piece) |
+| Short deadlines | 30-second transaction validity windows |
+
+### 🔍 Liquidity Agent — Pool Risk Tiers
+
+| Tier | Criteria | Score Bonus |
+|------|----------|-------------|
+| 🟢 **Blue Chip** | ≥$1M TVL + both tokens are major (WBNB, USDT, CAKE, ETH, BTCB) | +10 pts |
+| 🟡 **Mid Cap** | ≥$100K TVL | +5 pts |
+| 🔴 **Degen** | <$100K TVL | +0 pts |
+
+Pool scoring (0-100) factors: fee efficiency, liquidity depth, volume activity, reserve imbalance, risk tier.
 
 ---
 
@@ -70,17 +124,24 @@ streamlit run dashboard/app.py
 
 ## Dashboard
 
-The Streamlit dashboard provides real-time monitoring with **5 interactive tabs**:
+The Streamlit dashboard provides real-time monitoring with **6 interactive tabs**:
 
 | Tab | Features |
 |-----|----------|
 | **📈 Overview** | Equity curve, win/loss donut, P&L distribution, Sharpe/profit factor stats |
-| **📋 Trade History** | Filterable trade table, cumulative P&L chart, P&L by token pair |
+| **📋 Trade History** | Filterable trade table with strategy type column, cumulative P&L chart |
 | **🏆 Performance** | Drawdown chart, returns histogram, full performance summary |
 | **🌐 Market** | Live pool data, arbitrage opportunities, cross-pool price comparison |
+| **🔍 Pools** | Risk tier table, fee efficiency, impermanent loss, tier distribution pie chart, pool score ranking |
 | **💾 Database** | SQLite table counts, all-time trade stats, recent DB records |
 
-**Sidebar** displays: System info, Data Source (Live/Mock), Risk Agent status, and **Feedback Agent** live parameter values.
+**Sidebar** displays:
+- 📊 System info with **live regime indicator** (📈📉🔄⚡😴)
+- 🎯 **Multi-Strategy breakdown** (arbitrage / trend / MR signal counts)
+- 🛡️ Risk Agent status with **anomaly halt** indicator
+- ⚠️ Active **anomaly alerts** and 🐋 **whale alerts**
+- 🧠 Feedback Agent live parameter values
+- 🔍 Liquidity Agent pool tier distribution
 
 ---
 
@@ -88,22 +149,32 @@ The Streamlit dashboard provides real-time monitoring with **5 interactive tabs*
 
 ```
 trading-agent/
-├── agents/                         # 🤖 Multi-Agent System
+├── agents/                         # 🤖 7-Agent System
 │   ├── market_intelligence/
-│   │   └── market_agent.py         #    Scans markets, publishes opportunities
+│   │   └── market_agent.py         #    Scans markets + regime + whale + anomaly detection
+│   ├── liquidity/
+│   │   └── liquidity_agent.py      #    Pool risk tiers, fee efficiency, IL estimation
 │   ├── strategy/
-│   │   ├── signal_generator.py     #    Routes opportunities → trade signals
-│   │   └── arbitrage_strategy.py   #    Cross-pool arb strategy logic
+│   │   ├── signal_generator.py     #    Routes to multi-strategy engine
+│   │   └── arbitrage_strategy.py   #    Legacy single-strategy (kept for compat)
 │   ├── risk/
-│   │   └── risk_agent.py           #    6-check validation gate
+│   │   └── risk_agent.py           #    8-check validation gate + anomaly defense
 │   ├── execution/
-│   │   ├── execution_agent.py      #    Coordinates trade execution
+│   │   ├── execution_agent.py      #    MEV-protected trade execution
 │   │   ├── order_router.py         #    Direct vs multi-hop path finding
 │   │   └── gas_optimizer.py        #    Gas cost estimation & optimization
 │   ├── portfolio/
 │   │   └── portfolio_agent.py      #    Capital & performance tracking
 │   └── feedback/
 │       └── feedback_agent.py       #    Adaptive parameter tuning
+│
+├── strategies/                     # 📐 Strategy Engines
+│   ├── multi_strategy.py           #    Regime-aware: arb + trend + mean-reversion
+│   ├── arbitrage/
+│   │   ├── cross_pool.py           #    Cross-pool opportunity detection
+│   │   ├── price_diff.py           #    Precise price comparison
+│   │   └── profit_estimator.py     #    Net profit after gas + slippage
+│   └── utils.py                    #    AMM math (constant-product formulas)
 │
 ├── config/                         # ⚙️ Configuration
 │   ├── settings.py                 #    Centralized settings (env + YAML)
@@ -113,12 +184,12 @@ trading-agent/
 │
 ├── data/                           # 📊 Data Ingestion & Storage
 │   ├── collectors/
-│   │   ├── subgraph_collector.py   #    Real PancakeSwap V2 subgraph queries + mock fallback
+│   │   ├── subgraph_collector.py   #    Real PancakeSwap V2 subgraph + mock fallback
 │   │   ├── rpc_collector.py        #    On-chain data via Web3 RPC
 │   │   └── price_fetcher.py        #    Token USD price normalization
 │   ├── processors/
 │   │   ├── pool_analyzer.py        #    Groups pools, detects arb gaps
-│   │   └── feature_engineering.py  #    Derived metrics (vol/liq, volatility)
+│   │   └── feature_engineering.py  #    Regime detection, whale/anomaly detection, volatility
 │   └── storage/
 │       ├── cache.py                #    In-memory cache with TTL
 │       ├── redis_client.py         #    Optional Redis (auto-fallback)
@@ -140,16 +211,9 @@ trading-agent/
 │   ├── trade_logger.py             #    Full trade history log
 │   └── metrics.py                  #    Sharpe, win rate, drawdown, profit factor
 │
-├── strategies/                     # 📐 Reusable Strategy Logic
-│   ├── arbitrage/
-│   │   ├── cross_pool.py           #    Cross-pool opportunity detection
-│   │   ├── price_diff.py           #    Precise price comparison
-│   │   └── profit_estimator.py     #    Net profit after gas + slippage
-│   └── utils.py                    #    AMM math (constant-product formulas)
-│
 ├── orchestration/                  # 🎛️ System Coordination
 │   ├── event_bus.py                #    Async publish/subscribe (asyncio)
-│   ├── orchestrator.py             #    Main engine — wires all 6 agents + DB
+│   ├── orchestrator.py             #    Main engine — wires all 7 agents + DB
 │   └── scheduler.py                #    Interval-based task runner
 │
 ├── backtesting/                    # 🧪 Simulation Engine
@@ -158,7 +222,7 @@ trading-agent/
 │   └── scenarios.py                #    Stress tests (high gas, flash crash)
 │
 ├── dashboard/                      # 📈 Monitoring Dashboard
-│   ├── app.py                      #    Streamlit dashboard (5 tabs)
+│   ├── app.py                      #    Streamlit dashboard (6 tabs)
 │   └── components/
 │       ├── trade_table.py          #    Filterable trade history table
 │       ├── performance_charts.py   #    Equity curve, drawdown, histogram
@@ -174,9 +238,9 @@ trading-agent/
 │   ├── test_risk.py                #    Position sizing, drawdown, exposure, validation
 │   └── test_execution.py           #    Dry-run, slippage, DB, feedback agent
 │
-├── .env                            # Environment variables
-├── .gitignore                      # Python gitignore
+├── runtime.txt                     # Python 3.11 (Streamlit Cloud)
 ├── requirements.txt                # Python dependencies
+├── .env                            # Environment variables
 └── README.md                       # This file
 ```
 
@@ -196,7 +260,7 @@ trading-agent/
 ```env
 NETWORK=testnet                  # testnet or mainnet
 DRY_RUN=true                     # true = simulated, false = real trades
-INITIAL_CAPITAL_USD=1000.0        # Starting capital
+INITIAL_CAPITAL_USD=1000.0       # Starting capital
 PRIVATE_KEY=                     # Required for live trading only
 WALLET_ADDRESS=                  # Required for live trading only
 ```
@@ -212,27 +276,32 @@ WALLET_ADDRESS=                  # Required for live trading only
 | Max drawdown | 10% | Halts all trading if portfolio drops 10% from peak |
 | Max exposure/token | 25% | Prevents concentration in one asset |
 | Circuit breaker | 5 losses | Pauses 5 minutes after 5 consecutive losses |
+| **Anomaly halt** | Auto | **Flash crash / depeg auto-halts trading** for 60-120s |
+| **Per-trade stop-loss** | 2% | Each trade has an enforced stop-loss limit |
 | Min profit threshold | $0.50 | Rejects trades below expected profit floor |
+| **MEV protection** | On | Trade splitting + tight slippage prevents sandwich attacks |
 | Feedback bounds | ±50-200% | Feedback agent won't push parameters beyond safe limits |
 
 ---
 
-## Risk Agent — 6 Validation Checks
+## Risk Agent — 8 Validation Checks
 
-Every trade must pass all 6 checks before execution:
+Every trade must pass all 8 checks before execution:
 
-1. **Circuit breaker cooldown** — is the system currently halted?
-2. **Consecutive losses** — stop after N losses in a row
-3. **Drawdown** — halt if portfolio drops > max % from peak
-4. **Profit threshold** — reject if expected profit < minimum
-5. **Position sizing** — cap at max % of capital per trade
-6. **Exposure limits** — prevent over-concentration in one token
+1. **🚨 Anomaly halt** — is there an active flash crash / depeg / anomaly?
+2. **⏸️ Circuit breaker cooldown** — is the system currently halted?
+3. **📉 Consecutive losses** — stop after N losses in a row
+4. **📊 Drawdown** — halt if portfolio drops > max % from peak
+5. **💰 Profit threshold** — reject if expected profit < minimum
+6. **📏 Position sizing** — cap at max % of capital per trade
+7. **🔒 Exposure limits** — prevent over-concentration in one token
+8. **🛑 Per-trade stop-loss** — reject if potential loss exceeds 5% of capital
 
 ---
 
 ## Feedback Agent — Adaptive Parameter Tuning
 
-The feedback agent automatically adjusts system parameters based on recent performance:
+The feedback agent automatically adjusts system parameters based on a rolling 20-trade performance window:
 
 | Condition | Action |
 |-----------|--------|
@@ -263,7 +332,7 @@ All data is automatically persisted to `data/trading_data.db`:
 
 | Table | Data |
 |-------|------|
-| `trades` | Full trade history (pair, P&L, gas, tx hash, dry_run flag) |
+| `trades` | Full trade history (pair, strategy, P&L, gas, tx hash, dry_run flag) |
 | `portfolio_snapshots` | Capital, drawdown, Sharpe at each cycle |
 | `pool_snapshots` | Historical pool states |
 | `feedback_adjustments` | Parameter change log |
@@ -287,7 +356,7 @@ python -m unittest tests.test_execution -v
 | File | Tests | Covers |
 |------|-------|--------|
 | `test_strategy.py` | 17 | AMM math, price diff, cross-pool detection, profit estimation, proposal pipeline |
-| `test_risk.py` | 15 | Position sizing, drawdown circuit breaker, exposure limits, 6-check validation |
+| `test_risk.py` | 15 | Position sizing, drawdown circuit breaker, exposure limits, 8-check validation |
 | `test_execution.py` | 28 | PancakeClient dry-run, slippage control, SQLite CRUD, feedback agent adaptation |
 
 ---
@@ -315,7 +384,7 @@ To transition from dry-run to real trading:
 2. Set `NETWORK=mainnet` in `.env`
 3. Add your `PRIVATE_KEY` and `WALLET_ADDRESS` to `.env`
 4. Fund your wallet with BNB (for gas) and trading tokens
-5. Install `web3` and `aiohttp`: `pip install web3 aiohttp`
+5. Install `web3`: `pip install web3`
 6. Start with small capital and monitor the dashboard
 
 > ⚠️ **WARNING**: Live trading involves real financial risk. Always start small, monitor closely, and never trade with funds you cannot afford to lose.
@@ -326,11 +395,14 @@ To transition from dry-run to real trading:
 
 | Component | Technology |
 |-----------|------------|
-| Language | Python 3.10+ (async/await) |
-| Framework | asyncio event-driven |
+| Language | Python 3.11+ (async/await) |
+| Framework | asyncio event-driven, 7-agent architecture |
 | Blockchain | Web3.py + PancakeSwap Router V2 |
 | Data | PancakeSwap V2 Subgraph (GraphQL) |
+| Strategies | Arbitrage + Trend Following + Mean Reversion |
+| ML/Analysis | Regime detection, volatility analysis, autocorrelation |
 | Storage | SQLite (built-in, no dependencies) |
-| Dashboard | Streamlit + Plotly |
+| Dashboard | Streamlit + Plotly (6 tabs) |
 | Config | python-dotenv + PyYAML |
 | Testing | unittest (60 tests) |
+| Safety | MEV protection, anomaly halt, 8-check risk gate |
