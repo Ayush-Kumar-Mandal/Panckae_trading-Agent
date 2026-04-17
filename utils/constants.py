@@ -89,6 +89,12 @@ class Events:
     TRADE_FAILED = "execution.trade_failed"
     PORTFOLIO_UPDATED = "portfolio.updated"
     FEEDBACK_PARAMS_UPDATED = "feedback.params_updated"
+    # New events
+    REGIME_CHANGE = "market.regime_change"
+    WHALE_ALERT = "market.whale_alert"
+    ANOMALY_DETECTED = "risk.anomaly_detected"
+    POOL_ANALYSIS_UPDATED = "liquidity.pool_analysis_updated"
+    CIRCUIT_BREAKER_TRIGGERED = "risk.circuit_breaker_triggered"
 
 # ── Fixed Defaults ────────────────────────────────────────────────
 DEFAULT_GAS_COST_USD = 0.30          # Approximate BSC tx cost in USD

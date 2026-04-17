@@ -23,6 +23,10 @@ class PoolData:
     volume_24h_usd: float = 0.0
     fee_tier: float = 0.0025  # 0.25% default PancakeSwap V2 fee
     source: str = "subgraph"
+    pool_type: str = "v2"     # "v2" or "v3"
+    # V3-specific fields
+    tick: int = 0
+    fee_24h_usd: float = 0.0
 
 
 @dataclass
@@ -53,6 +57,9 @@ class TradeProposal:
     gas_cost_usd: float
     slippage_cost_usd: float
     confidence: float = 0.0    # 0-1 score
+    strategy_type: str = "arbitrage"  # "arbitrage", "trend", "mean_reversion"
+    stop_loss_pct: float = 0.02       # Per-trade stop-loss (2% default)
+    take_profit_pct: float = 0.05     # Per-trade take-profit (5% default)
 
 
 @dataclass
@@ -96,6 +103,54 @@ class PortfolioState:
         return (self.capital_usd - self.peak_capital_usd) / self.peak_capital_usd
 
 
+# ── Market Regime Detection ───────────────────────────────────────
+
+@dataclass
+class MarketRegime:
+    """Current market regime classification."""
+    regime: str = "unknown"  # "trending_up", "trending_down", "mean_reverting", "high_volatility", "low_volatility"
+    volatility: float = 0.0        # Rolling price volatility
+    volatility_percentile: float = 0.0  # 0-1, relative to history
+    trend_strength: float = 0.0    # -1 (strong down) to +1 (strong up)
+    mean_reversion_score: float = 0.0  # 0-1, how mean-reverting
+    confidence: float = 0.0        # 0-1 confidence in classification
+
+
+@dataclass
+class WhaleAlert:
+    """Detected large swap or liquidity event."""
+    event_type: str       # "large_swap", "liquidity_add", "liquidity_remove", "new_pool"
+    token_pair: str
+    amount_usd: float
+    pool_address: str = ""
+    timestamp: str = ""
+    impact_score: float = 0.0  # 0-1, how impactful
+
+
+@dataclass
+class PoolRiskTier:
+    """Risk classification for a liquidity pool."""
+    pool_address: str
+    token_pair: str
+    risk_tier: str           # "blue_chip", "mid_cap", "degen"
+    liquidity_usd: float
+    fee_to_liquidity_ratio: float  # fee_24h / liquidity — higher = more attractive
+    reserve_imbalance: float       # how imbalanced reserves are (0 = balanced)
+    impermanent_loss_1pct: float   # Estimated IL if price moves 1%
+    impermanent_loss_5pct: float   # Estimated IL if price moves 5%
+    score: float = 0.0             # Overall pool attractiveness score
+
+
+@dataclass
+class AnomalyAlert:
+    """Detected market anomaly requiring defensive action."""
+    anomaly_type: str     # "flash_crash", "depeg", "oracle_failure", "liquidity_drain", "volume_spike"
+    severity: str         # "low", "medium", "high", "critical"
+    token_pair: str = ""
+    description: str = ""
+    recommended_action: str = "pause"  # "pause", "reduce_exposure", "exit_all"
+
+
 @dataclass
 class MarketState:
     """Aggregated market state built by the Market Intelligence Agent."""
@@ -104,3 +159,8 @@ class MarketState:
     gas_price_gwei: float = 5.0
     block_number: int = 0
     timestamp: str = ""
+    # New fields
+    regime: MarketRegime = field(default_factory=MarketRegime)
+    whale_alerts: list[WhaleAlert] = field(default_factory=list)
+    anomalies: list[AnomalyAlert] = field(default_factory=list)
+    pool_risk_tiers: list[PoolRiskTier] = field(default_factory=list)
