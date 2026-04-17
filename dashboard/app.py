@@ -566,12 +566,16 @@ init_session()
 regime = st.session_state.get('current_regime', 'unknown')
 regime_icons = {'trending_up': '📈', 'trending_down': '📉', 'mean_reverting': '🔄', 'high_volatility': '⚡', 'low_volatility': '😴', 'neutral': '➡️', 'unknown': '❓'}
 regime_icon = regime_icons.get(regime, '❓')
+source_label = st.session_state.get('data_source', 'pending')
+is_live = source_label in ('subgraph', 'dexscreener')
+source_badge = f'<span class="status-badge" style="background:linear-gradient(135deg,#00e676,#00c853);color:#000">🟢 LIVE ({source_label.upper()})</span>' if is_live else '<span class="status-badge" style="background:linear-gradient(135deg,#ffd740,#ffab00);color:#000">🟡 MOCK DATA</span>' if source_label == 'mock' else '<span class="status-badge" style="background:#555;color:#fff">⏳ PENDING</span>'
 
 st.markdown(f"""
 <div class="main-header">
     <h1>🥞 PancakeSwap Trading Dashboard</h1>
     <p>Multi-Agent Multi-Strategy System &nbsp;|&nbsp;
     <span class="status-badge status-dry">DRY RUN MODE</span> &nbsp;|&nbsp;
+    {source_badge} &nbsp;|&nbsp;
     Regime: {regime_icon} {regime.replace('_', ' ').title()}</p>
 </div>
 """, unsafe_allow_html=True)
@@ -599,13 +603,14 @@ with st.sidebar:
     st.markdown("### 📊 System Info")
     settings = st.session_state.settings
     source_label = st.session_state.get('data_source', 'pending')
-    source_icon = '🟢 Live' if source_label == 'subgraph' else '🟡 Mock' if source_label == 'mock' else '⏳'
+    source_icons = {'subgraph': '🟢 Subgraph', 'dexscreener': '🟢 DexScreener', 'mock': '🟡 Mock', 'pending': '⏳ Pending', 'none': '❌ None'}
+    source_display = source_icons.get(source_label, f'❓ {source_label}')
     regime = st.session_state.get('current_regime', 'unknown')
     regime_icons = {'trending_up': '📈', 'trending_down': '📉', 'mean_reverting': '🔄', 'high_volatility': '⚡', 'low_volatility': '😴', 'neutral': '➡️', 'unknown': '❓'}
     st.markdown(f"""
     - **Network:** {settings.network.network}
     - **Mode:** {'DRY RUN 🔒' if settings.execution.dry_run else 'LIVE ⚠️'}
-    - **Data Source:** {source_icon}
+    - **Data Source:** {source_display}
     - **Regime:** {regime_icons.get(regime, '❓')} {regime.replace('_', ' ').title()}
     - **Min Profit:** ${settings.strategy.min_profit_threshold_usd:.2f}
     - **Max Risk/Trade:** {settings.risk.max_risk_per_trade_pct:.0%}
