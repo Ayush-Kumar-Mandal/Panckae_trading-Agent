@@ -25,7 +25,15 @@ logger = get_logger(__name__)
 SUBGRAPH_URLS = {
     "v2_bsc": "https://proxy-worker-api.pancakeswap.com/bsc-exchange",
     "v2_streaming": "https://bsc.streamingfast.io/subgraphs/name/pancakeswap/exchange-v2",
+    "v2_nodereal": "https://open-platform-ap.nodereal.io/69e256dc38dc4b3dbeae87826d42adac/pancakeswap-free/graphql",
 }
+
+# Ordered list of endpoints to try
+SUBGRAPH_FALLBACK_ORDER = [
+    SUBGRAPH_URLS["v2_streaming"],       # StreamingFast (official partner)
+    SUBGRAPH_URLS["v2_bsc"],             # PancakeSwap proxy
+    SUBGRAPH_URLS["v2_nodereal"],         # NodeReal free tier
+]
 
 # ── GraphQL Queries ───────────────────────────────────────────────
 QUERY_TOP_POOLS = """
@@ -126,32 +134,60 @@ class SubgraphCollector:
     def __init__(self, use_real: bool = True, subgraph_url: str = None):
         self._call_count = 0
         self._use_real = use_real
-        self._subgraph_url = subgraph_url or SUBGRAPH_URLS["v2_bsc"]
+        self._subgraph_url = subgraph_url  # If set, only use this URL
         self._last_real_data: list[PoolData] = []
+        self._working_url: str = None  # Cache the last URL that worked
 
     async def fetch_pools(self) -> list[PoolData]:
         """
         Fetch current pool states.
-        Attempts real subgraph query first, falls back to mock on failure.
+        Tries multiple subgraph endpoints, falls back to mock on total failure.
         """
         self._call_count += 1
 
         if self._use_real:
+            # If user specified a specific URL, only try that
+            if self._subgraph_url:
+                urls_to_try = [self._subgraph_url]
+            elif self._working_url:
+                # Try the last working URL first, then others
+                urls_to_try = [self._working_url] + [
+                    u for u in SUBGRAPH_FALLBACK_ORDER if u != self._working_url
+                ]
+            else:
+                urls_to_try = list(SUBGRAPH_FALLBACK_ORDER)
+
+            for url in urls_to_try:
+                try:
+                    pools = await self._fetch_from_subgraph(url)
+                    if pools:
+                        self._last_real_data = pools
+                        self._working_url = url
+                        logger.info(
+                            f"[LIVE] Fetched {len(pools)} real pools from PancakeSwap subgraph"
+                        )
+                        return pools
+                except Exception as e:
+                    logger.debug(f"Subgraph {url[:40]}... failed: {e}")
+
+            # Try DexScreener API as fallback (free, no API key)
             try:
-                pools = await self._fetch_from_subgraph()
+                pools = await self._fetch_from_dexscreener()
                 if pools:
                     self._last_real_data = pools
                     logger.info(
-                        f"[LIVE] Fetched {len(pools)} pools from PancakeSwap subgraph"
+                        f"[LIVE] Fetched {len(pools)} real pools from DexScreener API"
                     )
                     return pools
             except Exception as e:
-                logger.warning(f"Subgraph query failed: {e} — falling back to mock data")
+                logger.warning(f"DexScreener query failed: {e}")
+
+            logger.warning("All live data sources failed — falling back to mock data")
 
         # Fallback to mock data
         return await self._fetch_mock_pools()
 
-    async def _fetch_from_subgraph(self) -> list[PoolData]:
+    async def _fetch_from_subgraph(self, url: str = None) -> list[PoolData]:
         """Query the PancakeSwap V2 subgraph via HTTP POST."""
         try:
             import aiohttp
@@ -159,12 +195,13 @@ class SubgraphCollector:
             logger.warning("aiohttp not installed — cannot query subgraph")
             return []
 
+        subgraph_url = url or SUBGRAPH_URLS["v2_streaming"]
         payload = {"query": QUERY_TOP_POOLS}
         headers = {"Content-Type": "application/json"}
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                self._subgraph_url,
+                subgraph_url,
                 json=payload,
                 headers=headers,
                 timeout=aiohttp.ClientTimeout(total=10),
@@ -219,6 +256,93 @@ class SubgraphCollector:
             except (KeyError, ValueError, TypeError) as e:
                 logger.debug(f"Skipping malformed pair: {e}")
                 continue
+
+        return pools
+
+    # ── DexScreener API (fallback live data) ──────────────────────
+    DEXSCREENER_TOKEN_ADDRS = [
+        "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",  # WBNB
+        "0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82",  # CAKE
+    ]
+
+    async def _fetch_from_dexscreener(self) -> list[PoolData]:
+        """
+        Fetch real-time PancakeSwap pool data from DexScreener API.
+        Free, no API key required. Uses token search endpoint.
+        """
+        try:
+            import aiohttp
+        except ImportError:
+            logger.warning("aiohttp not installed")
+            return []
+
+        pools: list[PoolData] = []
+        seen_pairs = set()  # Avoid duplicate pool addresses
+
+        async with aiohttp.ClientSession() as session:
+            for token_addr in self.DEXSCREENER_TOKEN_ADDRS:
+                url = f"https://api.dexscreener.com/latest/dex/tokens/{token_addr}"
+                try:
+                    async with session.get(
+                        url, timeout=aiohttp.ClientTimeout(total=10)
+                    ) as response:
+                        if response.status != 200:
+                            continue
+                        data = await response.json()
+                except Exception:
+                    continue
+
+                pairs = data.get("pairs", [])
+                # Filter: PancakeSwap on BSC only, with sufficient liquidity
+                for pair in pairs:
+                    if pair.get("dexId") != "pancakeswap":
+                        continue
+                    if pair.get("chainId") != "bsc":
+                        continue
+
+                    pair_addr = pair.get("pairAddress", "")
+                    if pair_addr in seen_pairs:
+                        continue
+                    seen_pairs.add(pair_addr)
+
+                    try:
+                        base = pair["baseToken"]
+                        quote = pair["quoteToken"]
+                        liq = pair.get("liquidity", {})
+                        liq_usd = float(liq.get("usd", 0)) if isinstance(liq, dict) else 0
+                        vol = pair.get("volume", {})
+                        vol_24h = float(vol.get("h24", 0)) if isinstance(vol, dict) else 0
+                        price_usd = float(pair.get("priceUsd", 0))
+                        price_native = float(pair.get("priceNative", 0))
+
+                        if liq_usd < 10000 or price_usd <= 0:
+                            continue
+
+                        # Estimate reserves from liquidity
+                        reserve_base = (liq_usd / 2) / price_usd if price_usd > 0 else 0
+                        reserve_quote = liq_usd / 2
+
+                        # price_token0_in_token1 = how many quote tokens per 1 base
+                        price_t0_in_t1 = price_native if price_native > 0 else (reserve_quote / reserve_base if reserve_base > 0 else 0)
+
+                        pool = PoolData(
+                            pool_address=pair_addr,
+                            token0_symbol=base.get("symbol", "?"),
+                            token1_symbol=quote.get("symbol", "?"),
+                            token0_address=base.get("address", ""),
+                            token1_address=quote.get("address", ""),
+                            reserve0=round(reserve_base, 4),
+                            reserve1=round(reserve_quote, 4),
+                            price_token0_in_token1=round(price_t0_in_t1, 6),
+                            price_token1_in_token0=round(1 / price_t0_in_t1, 6) if price_t0_in_t1 > 0 else 0,
+                            liquidity_usd=round(liq_usd, 2),
+                            volume_24h_usd=round(vol_24h, 2),
+                            fee_tier=0.0025,
+                            source="dexscreener",
+                        )
+                        pools.append(pool)
+                    except (KeyError, ValueError, TypeError, ZeroDivisionError):
+                        continue
 
         return pools
 
