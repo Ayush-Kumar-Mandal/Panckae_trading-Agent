@@ -26,9 +26,11 @@ from plotly.subplots import make_subplots
 from config.settings import load_settings
 from data.collectors.subgraph_collector import SubgraphCollector
 from data.processors.pool_analyzer import PoolAnalyzer
-from agents.strategy.arbitrage_strategy import ArbitrageStrategy
+from data.processors.feature_engineering import FeatureEngineering
+from strategies.multi_strategy import MultiStrategyEngine
 from agents.risk.risk_agent import RiskAgent
 from agents.feedback.feedback_agent import FeedbackAgent
+from agents.liquidity.liquidity_agent import LiquidityAgent
 from execution.pancake_client import PancakeClient
 from portfolio.pnl_tracker import PnLTracker
 from data.storage.db_client import DBClient
@@ -200,9 +202,11 @@ def init_session():
         st.session_state.settings = settings
         st.session_state.collector = SubgraphCollector()
         st.session_state.analyzer = PoolAnalyzer(settings.strategy)
-        st.session_state.strategy = ArbitrageStrategy(settings.strategy)
+        st.session_state.strategy = MultiStrategyEngine(settings.strategy)
+        st.session_state.feature_eng = FeatureEngineering()
         st.session_state.risk_agent = RiskAgent(settings.risk)
         st.session_state.feedback_agent = FeedbackAgent(settings)
+        st.session_state.liquidity_agent = LiquidityAgent()
         st.session_state.client = PancakeClient(settings.execution)
         st.session_state.pnl = PnLTracker()
         st.session_state.db = DBClient()
@@ -215,6 +219,11 @@ def init_session():
         st.session_state.approved_trades = 0
         st.session_state.rejected_trades = 0
         st.session_state.data_source = "pending"
+        st.session_state.current_regime = "unknown"
+        st.session_state.whale_alerts = []
+        st.session_state.anomalies = []
+        st.session_state.pool_tiers = []
+        st.session_state.strategy_breakdown = {"arbitrage": 0, "trend_following": 0, "mean_reversion": 0}
         st.session_state.initialized = True
 
         # Initialize DB
@@ -247,18 +256,41 @@ def run_one_cycle():
         from utils.models import MarketState, PortfolioState
         from utils.helpers import timestamp_iso
 
+        # Update feature engineering history
+        fe = st.session_state.feature_eng
+        fe.update_history(pools)
+
+        # Detect regime
+        regime = fe.detect_regime()
+        st.session_state.current_regime = regime.regime
+
+        # Detect whale activity & anomalies
+        st.session_state.whale_alerts = fe.detect_whale_activity(pools)
+        st.session_state.anomalies = fe.detect_anomalies(pools)
+
         market_state = MarketState(
             pools=pools,
             gas_price_gwei=gas_price,
             timestamp=timestamp_iso(),
+            regime=regime,
+            whale_alerts=st.session_state.whale_alerts,
+            anomalies=st.session_state.anomalies,
         )
+
+        # Run liquidity agent
+        st.session_state.pool_tiers = st.session_state.liquidity_agent.analyze_pools(pools)
 
         # Get opportunities
         opportunities = st.session_state.analyzer.find_opportunities(pools)
         st.session_state.total_opportunities += len(opportunities)
 
-        # Generate proposals
+        # Generate multi-strategy proposals
         proposals = strategy.generate_proposals(market_state)
+
+        # Track strategy breakdown
+        for p in proposals:
+            stype = getattr(p, 'strategy_type', 'arbitrage')
+            st.session_state.strategy_breakdown[stype] = st.session_state.strategy_breakdown.get(stype, 0) + 1
 
         portfolio = PortfolioState(
             capital_usd=st.session_state.capital,
@@ -283,6 +315,7 @@ def run_one_cycle():
                 trade_record = {
                     "time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
                     "pair": proposal.opportunity.token_pair,
+                    "strategy": getattr(proposal, 'strategy_type', 'arbitrage'),
                     "size": f"${proposal.amount_in_usd:.2f}",
                     "pnl": trade_pnl,
                     "gas": result.gas_cost_usd,
@@ -529,11 +562,16 @@ def render_trade_table(trade_history: list[dict]):
 init_session()
 
 # ── Header ────────────────────────────────────────────────────────
-st.markdown("""
+regime = st.session_state.get('current_regime', 'unknown')
+regime_icons = {'trending_up': '📈', 'trending_down': '📉', 'mean_reverting': '🔄', 'high_volatility': '⚡', 'low_volatility': '😴', 'neutral': '➡️', 'unknown': '❓'}
+regime_icon = regime_icons.get(regime, '❓')
+
+st.markdown(f"""
 <div class="main-header">
     <h1>🥞 PancakeSwap Trading Dashboard</h1>
-    <p>Multi-Agent Arbitrage System &nbsp;|&nbsp;
-    <span class="status-badge status-dry">DRY RUN MODE</span></p>
+    <p>Multi-Agent Multi-Strategy System &nbsp;|&nbsp;
+    <span class="status-badge status-dry">DRY RUN MODE</span> &nbsp;|&nbsp;
+    Regime: {regime_icon} {regime.replace('_', ' ').title()}</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -561,26 +599,56 @@ with st.sidebar:
     settings = st.session_state.settings
     source_label = st.session_state.get('data_source', 'pending')
     source_icon = '🟢 Live' if source_label == 'subgraph' else '🟡 Mock' if source_label == 'mock' else '⏳'
+    regime = st.session_state.get('current_regime', 'unknown')
+    regime_icons = {'trending_up': '📈', 'trending_down': '📉', 'mean_reverting': '🔄', 'high_volatility': '⚡', 'low_volatility': '😴', 'neutral': '➡️', 'unknown': '❓'}
     st.markdown(f"""
     - **Network:** {settings.network.network}
     - **Mode:** {'DRY RUN 🔒' if settings.execution.dry_run else 'LIVE ⚠️'}
     - **Data Source:** {source_icon}
+    - **Regime:** {regime_icons.get(regime, '❓')} {regime.replace('_', ' ').title()}
     - **Min Profit:** ${settings.strategy.min_profit_threshold_usd:.2f}
     - **Max Risk/Trade:** {settings.risk.max_risk_per_trade_pct:.0%}
     - **Max Drawdown:** {settings.risk.max_drawdown_pct:.0%}
-    - **Slippage Tol:** {settings.strategy.slippage_tolerance:.1%}
+    - **Slippage:** {settings.strategy.slippage_tolerance:.1%}
     """)
 
     st.divider()
 
-    st.markdown("### 🔄 Risk Agent Status")
+    st.markdown("### 🎯 Multi-Strategy")
+    sb = st.session_state.strategy_breakdown
+    st.markdown(f"""
+    - **Arbitrage:** {sb.get('arbitrage', 0)} signals
+    - **Trend Following:** {sb.get('trend_following', 0)} signals
+    - **Mean Reversion:** {sb.get('mean_reversion', 0)} signals
+    """)
+
+    st.divider()
+
+    st.markdown("### 🛡️ Risk Agent")
     risk = st.session_state.risk_agent
+    anomaly_halt = risk._anomaly_halt and time.time() < risk._anomaly_halt_until
     st.markdown(f"""
     - **Approved:** {st.session_state.approved_trades}
     - **Rejected:** {st.session_state.rejected_trades}
     - **Consec. Losses:** {risk.consecutive_losses}
     - **Circuit Breaker:** {'🔴 ACTIVE' if risk.drawdown_ctrl.is_halted else '🟢 Normal'}
+    - **Anomaly Halt:** {'🔴 ACTIVE' if anomaly_halt else '🟢 Normal'}
+    - **Anomalies Detected:** {risk._anomaly_triggered_count}
     """)
+
+    # Show active anomalies
+    anomalies = st.session_state.get('anomalies', [])
+    if anomalies:
+        st.markdown("**⚠️ Active Anomalies:**")
+        for a in anomalies[-3:]:
+            st.warning(f"{a.anomaly_type}: {a.description}")
+
+    # Show whale alerts
+    whale_alerts = st.session_state.get('whale_alerts', [])
+    if whale_alerts:
+        st.markdown("**🐋 Whale Alerts:**")
+        for w in whale_alerts[-3:]:
+            st.info(f"{w.event_type}: {w.token_pair} (${w.amount_usd:,.0f})")
 
     st.divider()
 
@@ -595,6 +663,20 @@ with st.sidebar:
     - **Max Trade:** ${fb_stats['current_max_trade_size']:.2f}
     - **Risk/Trade:** {fb_stats['current_risk_per_trade']:.1%}
     - **Scan Interval:** {fb_stats['current_scan_interval']:.1f}s
+    """)
+
+    st.divider()
+
+    st.markdown("### 🔍 Liquidity Agent")
+    liq = st.session_state.liquidity_agent
+    liq_stats = liq.stats
+    tier_dist = liq_stats.get('tier_distribution', {})
+    st.markdown(f"""
+    - **Pools Analyzed:** {liq_stats['total_pools']}
+    - **Avg Score:** {liq_stats['avg_score']}/100
+    - **Blue Chip:** {tier_dist.get('blue_chip', 0)}
+    - **Mid Cap:** {tier_dist.get('mid_cap', 0)}
+    - **Degen:** {tier_dist.get('degen', 0)}
     """)
 
     if st.button("🔄 Reset System", use_container_width=True):
@@ -631,8 +713,8 @@ with col6:
 
 
 # ── Tabs ──────────────────────────────────────────────────────────
-tab_overview, tab_trades, tab_performance, tab_market, tab_database = st.tabs([
-    "📈 Overview", "📋 Trade History", "🏆 Performance", "🌐 Market", "💾 Database"
+tab_overview, tab_trades, tab_performance, tab_market, tab_liquidity, tab_database = st.tabs([
+    "📈 Overview", "📋 Trade History", "🏆 Performance", "🌐 Market", "🔍 Pools", "💾 Database"
 ])
 
 # ── Tab: Overview ─────────────────────────────────────────────────
@@ -934,6 +1016,101 @@ with tab_market:
                     yaxis=dict(gridcolor="rgba(255,255,255,0.05)", title="Price (USD)"),
                 )
                 st.plotly_chart(fig, use_container_width=True)
+
+# ── Tab: Pools (Liquidity Agent) ──────────────────────────────────
+with tab_liquidity:
+    st.markdown('<div class="section-header">Liquidity & Pool Analysis</div>', unsafe_allow_html=True)
+    st.caption("Risk-tiered pool analysis powered by the Liquidity Agent.")
+
+    pool_tiers = st.session_state.get('pool_tiers', [])
+
+    if pool_tiers:
+        # Tier distribution
+        col_tier1, col_tier2, col_tier3, col_tier4 = st.columns(4)
+        blue = sum(1 for t in pool_tiers if t.risk_tier == "blue_chip")
+        mid = sum(1 for t in pool_tiers if t.risk_tier == "mid_cap")
+        degen = sum(1 for t in pool_tiers if t.risk_tier == "degen")
+        avg_score = sum(t.score for t in pool_tiers) / len(pool_tiers) if pool_tiers else 0
+
+        with col_tier1:
+            metric_card("Blue Chip", str(blue), "blue")
+        with col_tier2:
+            metric_card("Mid Cap", str(mid), "purple")
+        with col_tier3:
+            metric_card("Degen", str(degen), "red")
+        with col_tier4:
+            metric_card("Avg Score", f"{avg_score:.1f}", "gold")
+
+        # Pool risk table
+        st.markdown('<div class="section-header">Pool Risk Tiers</div>', unsafe_allow_html=True)
+        tier_data = []
+        for t in pool_tiers:
+            tier_emoji = {"blue_chip": "🟢", "mid_cap": "🟡", "degen": "🔴"}.get(t.risk_tier, "⚪")
+            tier_data.append({
+                "Pair": t.token_pair,
+                "Tier": f"{tier_emoji} {t.risk_tier.replace('_', ' ').title()}",
+                "Liquidity": f"${t.liquidity_usd:,.0f}",
+                "Fee/Liq": f"{t.fee_to_liquidity_ratio:.4%}",
+                "Imbalance": f"{t.reserve_imbalance:.1%}",
+                "IL (1%)": f"{t.impermanent_loss_1pct:.4%}",
+                "IL (5%)": f"{t.impermanent_loss_5pct:.4%}",
+                "Score": f"{t.score:.1f}/100",
+            })
+        st.dataframe(pd.DataFrame(tier_data), use_container_width=True, hide_index=True)
+
+        # Tier distribution pie chart
+        col_pie, col_bar = st.columns(2)
+        with col_pie:
+            if blue + mid + degen > 0:
+                fig = go.Figure(go.Pie(
+                    labels=["Blue Chip", "Mid Cap", "Degen"],
+                    values=[blue, mid, degen],
+                    marker=dict(colors=["#667eea", "#ffd740", "#ff5252"]),
+                    hole=0.45,
+                    textinfo="label+value",
+                    textfont=dict(color="white", size=12),
+                ))
+                fig.update_layout(
+                    title=dict(text="Tier Distribution", font=dict(color="white", size=14)),
+                    template="plotly_dark",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    height=300,
+                    showlegend=False,
+                    font=dict(family="Inter", color="rgba(255,255,255,0.8)"),
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+        with col_bar:
+            # Score ranking bar chart
+            top_pools = sorted(pool_tiers, key=lambda t: t.score, reverse=True)[:8]
+            fig = go.Figure(go.Bar(
+                x=[t.token_pair for t in top_pools],
+                y=[t.score for t in top_pools],
+                marker_color=[
+                    "#667eea" if t.risk_tier == "blue_chip"
+                    else "#ffd740" if t.risk_tier == "mid_cap"
+                    else "#ff5252"
+                    for t in top_pools
+                ],
+                text=[f"{t.score:.0f}" for t in top_pools],
+                textposition="outside",
+                textfont=dict(color="white", size=11),
+            ))
+            fig.update_layout(
+                title=dict(text="Pool Score Ranking", font=dict(color="white", size=14)),
+                template="plotly_dark",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                height=300,
+                showlegend=False,
+                font=dict(family="Inter", color="rgba(255,255,255,0.8)"),
+                xaxis=dict(gridcolor="rgba(255,255,255,0.05)"),
+                yaxis=dict(gridcolor="rgba(255,255,255,0.05)", title="Score"),
+            )
+            st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Run some trading cycles to see pool analysis. Use the sidebar buttons.")
 
 # ── Tab: Database ─────────────────────────────────────────────────
 with tab_database:
